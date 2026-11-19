@@ -137,6 +137,38 @@
       box-shadow: 0 0 0 4px rgba(223, 180, 104, 0.18);
     }
 
+    .audio-toggle.waiting {
+      border-color: var(--gold);
+      animation: audioNudge 1.6s ease-in-out infinite;
+    }
+
+    @keyframes audioNudge {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(223, 180, 104, 0.55); }
+      50% { box-shadow: 0 0 0 10px rgba(223, 180, 104, 0); }
+    }
+
+    .audio-hint {
+      position: fixed;
+      top: 24px;
+      right: 70px;
+      z-index: 90;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: rgba(253, 254, 255, 0.92);
+      border: 1px solid rgba(223, 180, 104, 0.5);
+      color: var(--accent-blue);
+      font-size: 0.8rem;
+      font-weight: 600;
+      line-height: 1.4;
+      box-shadow: 0 6px 18px rgba(30, 45, 66, 0.1);
+      opacity: 0;
+      transform: translateX(6px);
+      transition: opacity 0.4s ease, transform 0.4s ease;
+      pointer-events: none;
+    }
+
+    .audio-hint.show { opacity: 1; transform: translateX(0); }
+
     /* 1. Opening Gate Screen */
     #opening-gate {
       position: fixed;
@@ -984,6 +1016,7 @@
 
   <audio id="bg-music" src="music.mp3" loop preload="auto"></audio>
 
+  <span class="audio-hint" id="audio-hint" aria-hidden="true">🎵 Tap anywhere for music</span>
   <button class="audio-toggle" id="audio-toggle" aria-label="Play music" title="Music">
     <svg id="icon-off" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="m23 9-6 6M17 9l6 6"/></svg>
     <svg id="icon-on" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></svg>
@@ -1184,22 +1217,52 @@
       var iconOn = document.getElementById('icon-on');
       var iconOff = document.getElementById('icon-off');
 
-      function setAudioUI(playing) {
+      var audioHint = document.getElementById('audio-hint');
+      // true until the visitor deliberately pauses with the speaker button
+      var wantMusic = true;
+
+      // state: 'playing' | 'waiting' (browser blocked sound, waiting for a tap) | 'paused'
+      function setAudioUI(state) {
+        var playing = state === 'playing';
         toggle.classList.toggle('playing', playing);
-        iconOn.style.display = playing ? 'block' : 'none';
-        iconOff.style.display = playing ? 'none' : 'block';
+        toggle.classList.toggle('waiting', state === 'waiting');
+        audioHint.classList.toggle('show', state === 'waiting');
+        iconOn.style.display = state === 'paused' ? 'none' : 'block';
+        iconOff.style.display = state === 'paused' ? 'block' : 'none';
         toggle.setAttribute('aria-label', playing ? 'Pause music' : 'Play music');
       }
 
       function playMusic() {
-        audio.volume = 0.7;
+        audio.muted = false;
+        audio.volume = 1;
         var p = audio.play();
-        if (p && p.then) p.then(function () { setAudioUI(true); }).catch(function () { setAudioUI(false); });
+        if (p && p.then) {
+          p.then(function () { setAudioUI('playing'); })
+           .catch(function () { setAudioUI(wantMusic ? 'waiting' : 'paused'); });
+        } else {
+          setAudioUI(audio.paused ? 'waiting' : 'playing');
+        }
       }
 
       toggle.addEventListener('click', function () {
-        if (audio.paused) playMusic(); else { audio.pause(); setAudioUI(false); }
+        if (audio.paused) { wantMusic = true; playMusic(); }
+        else { wantMusic = false; audio.pause(); setAudioUI('paused'); }
       });
+
+      // Browsers only allow sound after the visitor taps something.
+      // So: try straight away, and otherwise start on the very first tap/key anywhere on the page.
+      function unlockAudio(e) {
+        if (e && e.target && e.target.closest && e.target.closest('#audio-toggle')) return;
+        if (wantMusic && audio.paused) playMusic();
+      }
+      ['click', 'touchend', 'keydown'].forEach(function (type) {
+        document.addEventListener(type, unlockAudio, { capture: true, passive: true });
+      });
+      audio.addEventListener('playing', function () { setAudioUI('playing'); });
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'visible' && wantMusic && audio.paused) playMusic();
+      });
+      playMusic();
 
       /* Opening gate */
       document.getElementById('open-btn').addEventListener('click', function () {
